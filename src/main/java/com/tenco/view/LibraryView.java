@@ -4,6 +4,7 @@ import com.tenco.dto.Book;
 import com.tenco.dto.Borrow;
 import com.tenco.dto.Student;
 import com.tenco.service.LibraryService;
+import com.tenco.util.DatabaseUtil;
 
 import java.sql.SQLException;
 import java.util.List;
@@ -293,5 +294,8 @@ public class LibraryView {
                 System.out.println(e.getMessage());
             }
         }
+
+        DatabaseUtil.close();
+        scanner.close();
     }
 }
