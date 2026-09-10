@@ -6,6 +6,7 @@ import com.tenco.dto.Student;
 import com.tenco.util.DatabaseUtil;
 
 import java.sql.*;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -57,45 +58,50 @@ public class BorrowDAO {
                 while (resultSet.next()) {
 
                     // borrows 레코드
-                    Borrow borrow = new Borrow();
-                    Date dateReturnDate = resultSet.getDate("return_date");
                     int bookId = resultSet.getInt("book_id");
                     int studentId = resultSet.getInt("student_id");
+                    Date dateBorrow = resultSet.getDate("borrow_date");
+                    Date dateReturnDate = resultSet.getDate("return_date");
 
-                    borrow.setId(resultSet.getInt("id"));
-                    borrow.setBookId(bookId);
-                    borrow.setStudentId(studentId);
-                    borrow.setBorrowDate(resultSet.getDate("borrow_date").toLocalDate());
-                    borrow.setReturnDate(dateReturnDate != null ? dateReturnDate.toLocalDate() : null);
+                    Borrow.BorrowBuilder borrowBuilder = Borrow.builder();
+                    borrowBuilder
+                            .id(resultSet.getInt("id"))
+                            .bookId(bookId)
+                            .studentId(studentId)
+                            .borrowDate(dateBorrow != null ? dateBorrow.toLocalDate() : null)
+                            .returnDate(dateReturnDate != null ? dateReturnDate.toLocalDate() : null);
 
                     // JOIN된 books 레코드 + HashMap으로 중복방지
                     Book book = bookMap.get(bookId);
                     if (book == null) {
-                        book = new Book(
-                                bookId,
-                                resultSet.getString("title"),
-                                resultSet.getString("author"),
-                                resultSet.getString("publisher"),
-                                resultSet.getInt("publication_year"),
-                                resultSet.getString("isbn"),
-                                resultSet.getBoolean("available"));
+                        book = Book.builder()
+                                .id(bookId)
+                                .title(resultSet.getString("title"))
+                                .author(resultSet.getString("author"))
+                                .publisher(resultSet.getString("publisher"))
+                                .publicationYear(resultSet.getInt("publication_year"))
+                                .isbn(resultSet.getString("isbn"))
+                                .available(resultSet.getBoolean("available"))
+                            .build();
                         bookMap.put(bookId, book);
                     }
-                    borrow.setBook(book);
+                    borrowBuilder
+                            .book(book);
 
                     // JOIN된 students 레코드 + HashMap으로 중복방지
                     Student student = studentMap.get(studentId);
                     if (student == null) {
-                        student = new Student(
-                                studentId,
-                                resultSet.getString("student_name"),
-                                resultSet.getString("student_no")
-                        );
+                        student = Student.builder()
+                                .id(studentId)
+                                .name(resultSet.getString("student_name"))
+                                .studentId(resultSet.getString("student_no"))
+                            .build();
                         studentMap.put(studentId, student);
                     }
-                    borrow.setStudent(student);
+                    borrowBuilder
+                            .student(student);
 
-
+                    Borrow borrow = borrowBuilder.build();
                     borrowList.add(borrow);
                 }
             }
@@ -106,14 +112,165 @@ public class BorrowDAO {
         return borrowList;
     }
 
-    // 이하 내일 과제
-
     // 2. 도서 대출 기능 (트랜잭션)
     // 2.1. 대출 가능 여부 SELECT
     // 2.2. 도서 대출 INSERT
+    // 2.3. 도서 대출 가능 여부 UPDATE
+    public void borrowBook(int bookId, int studentId) {
+        try (Connection connection = DatabaseUtil.getConnection()) {
+            // 트랜잭션 시작
+            connection.setAutoCommit(false);
+
+            try {
+                // 대출 가능 여부 확인
+                String checkSql = """
+                        SELECT available FROM books WHERE id = ?
+                        """;
+                try (PreparedStatement checkStatement = connection.prepareStatement(checkSql)) {
+                    checkStatement.setInt(1, bookId);
+
+                    try (ResultSet rs = checkStatement.executeQuery()) {
+                        if (!rs.next()) {
+                            throw new SQLException("존재하지 않는 도서입니다. ID : " + bookId);
+                        }
+
+                        if (!rs.getBoolean("available")) {
+                            throw new SQLException("현재 대출 중인 도서입니다. 반납 후 이용가능합니다.");
+                        }
+                    }
+                }
+
+                // 도서 대출
+                String borrowSql = """
+                        INSERT INTO borrows
+                               (book_id, student_id, borrow_date)
+                        VALUES (?      , ?         , ?          )
+                        """;
+                int rows;
+                try (PreparedStatement borrowStatement = connection.prepareStatement(borrowSql)) {
+                    borrowStatement.setInt(1, bookId);
+                    borrowStatement.setInt(2, studentId);
+                    borrowStatement.setDate(3, Date.valueOf(LocalDate.now()));
+
+                    rows = borrowStatement.executeUpdate();
+                }
+                if (rows < 0) {
+                    throw new SQLException("적용된 기록이 없습니다.");
+                }
+
+                // 도서 상태 변경 (대출 불가로)
+                String updateSql = """
+                        UPDATE books SET
+                            available = FALSE
+                        WHERE
+                            id = ?
+                        """;
+                try (PreparedStatement updateStatement = connection.prepareStatement(updateSql)) {
+                    updateStatement.setInt(1, bookId);
+                    updateStatement.executeUpdate();
+                }
+
+                // 확정 처리
+                connection.commit();
+            } catch (Exception e) {
+                // 롤백 처리
+                connection.rollback();
+                throw e;
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+    }
 
     // 3. 도서 반납 기능 (트랜잭션)
     // 3.1. 대출 기록 확인 SELECT
-    // 3.2. 반납 기록 등록 UPDATE?
+    // 3.2. 반납 기록 수정 UPDATE
+    // 3.2. 대출 가능 여부 수정 UPDATE
+    public void returnBook (int bookId, int studentId) {
+        try (Connection connection = DatabaseUtil.getConnection()) {
+            // 트랜잭션 시작
+            connection.setAutoCommit(false);
+
+            try {
+                // 반납 대기 확인
+                String checkSql = """
+                        SELECT
+                           id
+                         , borrow_date
+                         , return_date
+                       FROM borrows
+                       WHERE
+                           book_id = ?
+                       AND student_id = ?
+                       ORDER BY
+                           return_date IS NULL
+                         , borrow_date
+                       LIMIT 1
+                        """;
+                int borrowId = 0;
+                try (PreparedStatement checkStatement = connection.prepareStatement(checkSql)) {
+                    checkStatement.setInt(1, bookId);
+                    checkStatement.setInt(2, studentId);
+
+                    try (ResultSet rs = checkStatement.executeQuery()) {
+                        if (!rs.next()) {
+                            throw new SQLException("대출한 기록이 없는 도서입니다. ID : " + bookId);
+                        }
+
+                        if (rs.getDate("return_date") != null) {
+                            throw new SQLException("이미 반납이 완료된 도서입니다.");
+                        }
+
+                        borrowId = rs.getInt("id");
+                    }
+                }
+
+                // 도서 반납
+                String returnSql = """
+                        UPDATE borrows SET
+                            return_date = ?
+                        WHERE
+                            id = ?
+                        """;
+                int rows;
+                try (PreparedStatement returnStatement = connection.prepareStatement(returnSql)) {
+                    returnStatement.setDate(1, Date.valueOf(LocalDate.now()));
+                    returnStatement.setInt(2, borrowId);
+
+                    rows = returnStatement.executeUpdate();
+                }
+                if (rows < 0) {
+                    throw new SQLException("대출 기록이 없어 반납 적용할 수 없습니다.");
+                }
+
+                // 도서 상태 변경 (대출 가능으로)
+                String updateSql = """
+                        UPDATE books SET
+                            available = TRUE
+                        WHERE
+                            id = ?
+                        """;
+                try (PreparedStatement updateStatement = connection.prepareStatement(updateSql)) {
+                    updateStatement.setInt(1, bookId);
+                    updateStatement.executeUpdate();
+                }
+                if (rows < 0) {
+                    throw new SQLException("책 내용이 없어 반납 적용할 수 없습니다.");
+                }
+
+                // 확정 처리
+                connection.commit();
+            } catch (Exception e) {
+                // 롤백 처리
+                connection.rollback();
+                throw e;
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
 }

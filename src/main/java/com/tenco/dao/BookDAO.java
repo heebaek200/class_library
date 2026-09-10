@@ -57,8 +57,6 @@ public class BookDAO {
                 while (resultSet.next()) {
                     bookList.add(createBook(resultSet));
                 }
-
-                System.out.println(preparedStatement);
             }
 
         } catch (SQLException e) {

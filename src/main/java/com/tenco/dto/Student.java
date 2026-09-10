@@ -1,6 +1,7 @@
 package com.tenco.dto;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 
 /**
@@ -8,6 +9,7 @@ import lombok.Data;
  */
 @Data
 @AllArgsConstructor
+@Builder
 public class Student {
     private int id;                         // 학생ID
     private String name;                    // 학생 이름
@@ -21,8 +23,7 @@ public class Student {
     @Override
     public String toString() {
         return "Student{" +
-                "id=" + id +
-                ", name='" + name + '\'' +
+                "name='" + name + '\'' +
                 ", studentId='" + studentId + '\'' +
                 '}';
     }

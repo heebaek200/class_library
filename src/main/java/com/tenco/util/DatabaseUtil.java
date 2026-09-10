@@ -19,10 +19,10 @@ public class DatabaseUtil {
     public static Connection getConnection() throws SQLException {
         Connection connection = DriverManager.getConnection(URL, DB_USER, DB_PASSWORD);
 
-        System.out.println("Connecting To Database... : %s %s".formatted(
-                connection.getMetaData().getDatabaseProductName(),
-                connection.getMetaData().getDatabaseProductVersion()
-        ));
+        //System.out.println("Connecting To Database... : %s %s".formatted(
+        //        connection.getMetaData().getDatabaseProductName(),
+        //        connection.getMetaData().getDatabaseProductVersion()
+        //));
 
         return connection;
     }

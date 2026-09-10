@@ -28,4 +28,15 @@ public class Book {
         this.available = available;
     }
 
+    @Override
+    public String toString() {
+        return "Book{" +
+                "id='" + id + '\'' +
+                ", title='" + title + '\'' +
+                ", author='" + author + '\'' +
+                ", publisher='" + publisher + '\'' +
+                ", publicationYear=" + publicationYear +
+                ", isbn='" + isbn + '\'' +
+                '}';
+    }
 }
